@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"github.com/nullseed/logruseq"
 	logger "github.com/sirupsen/logrus"
@@ -20,17 +21,16 @@ var versionFlag *bool = flag.Bool("v", false, "print the version number.")
 var debugFlag *bool = flag.Bool("d", false, "enable debug logging")
 
 func init() {
+	// Log to seq instance
 	logger.AddHook(logruseq.NewSeqHook("http://localhost:5341"))
-	// Or optionally use the hook with an API key:
-	// log.AddHook(logruseq.NewSeqHook("http://localhost:5341",
-	// 	logruseq.OptionAPIKey("N1ncujiT5pYGD6m4CF0")))
-
-	// Log as JSON instead of the default ASCII formatter.
-	//logger.SetFormatter(&logger.JSONFormatter{})
-
-	// Output to stdout instead of the default stderr
-	// Can be any io.Writer, see below for File example
 	logger.SetOutput(os.Stdout)
+
+	// Setup signal handler to cleanup properly
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start signal handler thread
+	go signalHandler(signals)
 }
 
 func shutdown() {
@@ -57,17 +57,10 @@ func main() {
 		logger.SetLevel(logger.DebugLevel)
 		logger.SetReportCaller(true)
 	}
-
-	// Setup signal handler to cleanup properly
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
-
-	// Start signal handler thread
-	go signalHandler(signals)
-
 	logger.Info("Starting REST service on " + URL)
 
 	router := mux.NewRouter().StrictSlash(true)
 	router.HandleFunc("/echo", Echo).Methods(http.MethodPost)
-	logger.Fatal(http.ListenAndServe(URL, router))
+	loggedRouter := handlers.LoggingHandler(logger.StandardLogger().Writer(), router)
+	logger.Fatal(http.ListenAndServe(URL, loggedRouter))
 }
